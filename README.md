@@ -61,15 +61,10 @@ The whole configuration is in [`.bazelrc`](.bazelrc):
 
 ```
 build --remote_cache=grpcs://cache.aspect.build
-build --bes_backend=grpcs://bes.aspect.build
-build --bes_results_url=https://app.aspect.build/i/
-build --remote_cache_header=X-Aspect=<your token>      # these two live in user.bazelrc, gitignored
-build --bes_header=X-Aspect=<your token>
+build --remote_cache_header=X-Aspect=<your token>      # lives in user.bazelrc, gitignored
 ```
 
-CI writes the two header lines into `user.bazelrc` from the `ASPECT_API_TOKEN` secret, and `.bazelrc` `try-import`s the file. Nothing else is needed: no credential helper, no cache servers to run, and the same cache is shared by every job, branch and laptop that has the token.
-
-The build event stream goes to Aspect Cloud with the same token, so every `bazel test` in the logs starts with a link to its page in the UI.
+CI writes the header line into `user.bazelrc` from the `ASPECT_API_TOKEN` secret, and `.bazelrc` `try-import`s the file. Nothing else is needed: no credential helper, no cache servers to run, and the same cache is shared by every job, branch and laptop that has the token.
 
 ### How the cache gets its baseline
 
@@ -101,7 +96,7 @@ Fork, add an `ASPECT_API_TOKEN` repository secret (an Aspect Cloud token), push.
 Locally, with the same token:
 
 ```sh
-printf 'build --remote_cache_header=X-Aspect=%s\nbuild --bes_header=X-Aspect=%s\n' "$TOKEN" "$TOKEN" > user.bazelrc   # gitignored
+echo 'build --remote_cache_header=X-Aspect=<your token>' > user.bazelrc   # gitignored
 bazel test //...                 # seed the baseline (or let CI do it)
 echo 'core v2' > core/core.txt
 aspect cache diff                # → 50 labels on stdout, reasons on stderr, nothing executed

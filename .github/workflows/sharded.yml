@@ -34,23 +34,17 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       # Installs bazelisk and the Aspect CLI launcher (the CLI version is pinned
-      # by .aspect/version.axl). The endpoints are in .bazelrc.
+      # by .aspect/version.axl). The cache itself is configured in .bazelrc.
       - uses: aspect-build/setup-aspect@ebca96eb49ef58c00d4226de8bd3a0813507dd87 # v2026.38.3
         with:
           bazelrc-generate: false
-      - name: Authenticate to the remote cache and BES
+      - name: Authenticate to the remote cache
         env:
           ASPECT_API_TOKEN: ${{ secrets.ASPECT_API_TOKEN }}
-        run: |
-          {
-            echo "build --remote_cache_header=X-Aspect=$ASPECT_API_TOKEN"
-            echo "build --bes_header=X-Aspect=$ASPECT_API_TOKEN"
-          } > user.bazelrc
+        run: echo "build --remote_cache_header=X-Aspect=$ASPECT_API_TOKEN" > user.bazelrc
       - name: Which tests are affected?
         # stdout is the JSON document; progress and per-target reasons go to stderr.
-        # The probe executes nothing, so it has no build events worth streaming;
-        # --bes_backend= switches BES off for this one invocation.
-        run: aspect cache diff --output=json --bes_backend= //... > affected.json
+        run: aspect cache diff --output=json //... > affected.json
       - name: Shard
         id: shard
         # Also writes the job summary (affected tests and their causes) when
@@ -75,13 +69,9 @@ jobs:
       - uses: aspect-build/setup-aspect@ebca96eb49ef58c00d4226de8bd3a0813507dd87 # v2026.38.3
         with:
           bazelrc-generate: false
-      - name: Authenticate to the remote cache and BES
+      - name: Authenticate to the remote cache
         env:
           ASPECT_API_TOKEN: ${{ secrets.ASPECT_API_TOKEN }}
-        run: |
-          {
-            echo "build --remote_cache_header=X-Aspect=$ASPECT_API_TOKEN"
-            echo "build --bes_header=X-Aspect=$ASPECT_API_TOKEN"
-          } > user.bazelrc
+        run: echo "build --remote_cache_header=X-Aspect=$ASPECT_API_TOKEN" > user.bazelrc
       - name: Test this shard
         run: bazel test ${{ matrix.targets }}
