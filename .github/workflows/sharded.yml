@@ -32,6 +32,8 @@ jobs:
       total: ${{ steps.shard.outputs.total }}
       matrix: ${{ steps.shard.outputs.matrix }}
     steps:
+      - name: Mark job start
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
       - uses: actions/checkout@v6
       # Installs bazelisk and the Aspect CLI launcher (the CLI version is pinned
       # by .aspect/version.axl). The cache itself is configured in .bazelrc.
@@ -43,17 +45,27 @@ jobs:
           ASPECT_API_TOKEN: ${{ secrets.ASPECT_API_TOKEN }}
         run: echo "build --remote_cache_header=X-Aspect=$ASPECT_API_TOKEN" > user.bazelrc
       - name: Which tests are affected?
-        # stdout is the JSON document; progress and per-target reasons go to stderr.
-        run: aspect cache diff --output=json //... > affected.json
+        # stdout is the JSON document; progress, per-target reasons and the phase
+        # timing go to stderr, which is kept for the timing summary below.
+        run: |
+          aspect cache diff --output=json //... > affected.json 2> cache-diff.log || status=$?
+          cat cache-diff.log >&2
+          exit "${status:-0}"
       - name: Shard
         id: shard
         # Also writes the job summary (affected tests and their causes) when
         # GITHUB_STEP_SUMMARY is set.
         run: python3 tools/shard.py affected.json "$MAX_SHARDS" >> "$GITHUB_OUTPUT"
+      - name: Where the time went
+        if: always()
+        run: python3 tools/timing.py --cache-diff cache-diff.log
       - uses: actions/upload-artifact@v7
+        if: always()
         with:
           name: affected
-          path: affected.json
+          path: |
+            affected.json
+            timing.json
 
   test:
     needs: select
@@ -65,6 +77,8 @@ jobs:
       matrix: ${{ fromJSON(needs.select.outputs.matrix) }}
     name: test (${{ matrix.shard }})
     steps:
+      - name: Mark job start
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
       - uses: actions/checkout@v6
       - uses: aspect-build/setup-aspect@ebca96eb49ef58c00d4226de8bd3a0813507dd87 # v2026.38.3
         with:
@@ -74,4 +88,12 @@ jobs:
           ASPECT_API_TOKEN: ${{ secrets.ASPECT_API_TOKEN }}
         run: echo "build --remote_cache_header=X-Aspect=$ASPECT_API_TOKEN" > user.bazelrc
       - name: Test this shard
-        run: bazel test ${{ matrix.targets }}
+        run: bazel test ${{ matrix.targets }} --build_event_json_file=bep.json
+      - name: Where the time went
+        if: always()
+        run: python3 tools/timing.py bep.json
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: timing-shard-${{ strategy.job-index }}
+          path: timing.json

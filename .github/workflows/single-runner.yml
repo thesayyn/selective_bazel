@@ -19,6 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
+      - name: Mark job start
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
       - uses: actions/checkout@v6
       # Installs bazelisk and the Aspect CLI launcher (the CLI version is pinned
       # by .aspect/version.axl). The cache itself is configured in .bazelrc.
@@ -37,4 +39,12 @@ jobs:
       - name: Keep a separate cache namespace from the sharded pipeline
         run: echo "build --action_env=PIPELINE=single-runner" >> user.bazelrc
       - name: Test everything
-        run: bazel test //...
+        run: bazel test //... --build_event_json_file=bep.json
+      - name: Where the time went
+        if: always()
+        run: python3 tools/timing.py bep.json
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: timing-single-runner
+          path: timing.json

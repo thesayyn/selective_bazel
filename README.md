@@ -75,6 +75,14 @@ The one rule: the baseline and the probe must resolve the same Bazel flags, so t
 
 Both pipelines run on every push, at the same time, against the same cache. Left alone, the shards' uploads land while the single runner is still working through its queue, and it takes them as cache hits; its first measured full run came out at under five minutes that way. So `single-runner.yml` adds `--action_env=PIPELINE=single-runner`, which enters every action key and gives that pipeline its own cache namespace. Each pipeline now only ever sees its own uploads, which is what a team running one or the other would see.
 
+### A side effect worth knowing
+
+The cache is keyed by the bytes a test consumes, not by the commit. While measuring, a pull request was re-pushed with the same `core v2` edit it had carried before; `cache diff` reported 0 of 100 affected and the single runner executed nothing, because every result for those exact inputs was already in the cache from the earlier run. Reverts and re-applied changes are free in both pipelines, and nothing had to be configured for that.
+
+### Where the time goes
+
+Every job ends with a "Where the time went" table in its summary, produced by [`tools/timing.py`](tools/timing.py) from Bazel's build event JSON: checkout and tool install (job start → Bazel start), Bazel's loading and analysis phase, its execution phase (tests run four at a time), the pure test time (the executed tests' durations summed, i.e. what a one-core serial run would cost), and how many results came from the remote cache. The `select` job shows `aspect cache diff`'s own phases instead (`invalidate · probe · enumerate · attribute`). Each job also uploads the same numbers as a `timing.json` artifact.
+
 ## Results
 
 Measured on GitHub-hosted `ubuntu-latest` runners (4 cores). Durations are the whole workflow run as reported by GitHub Actions, including checkout and tool install.
