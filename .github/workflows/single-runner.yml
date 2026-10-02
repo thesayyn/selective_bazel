@@ -1,0 +1,30 @@
+name: single runner
+
+# The baseline: every test on one GitHub-hosted runner, with the remote cache.
+# Tests already in the cache are skipped by Bazel itself; the rest run here,
+# four at a time (ubuntu-latest has 4 cores).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+      # Installs bazelisk and the Aspect CLI launcher, and writes the remote
+      # cache + BES configuration to ~/.aspect/bazelrc (imported by ~/.bazelrc),
+      # so a plain `bazel` call below reads and writes the shared cache.
+      - uses: aspect-build/setup-aspect@ebca96eb49ef58c00d4226de8bd3a0813507dd87 # v2026.38.3
+        with:
+          aspect-api-token: ${{ secrets.ASPECT_API_TOKEN }}
+      - name: Test everything
+        run: bazel test //...

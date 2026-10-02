@@ -1,0 +1,14 @@
+# Keep this file small on purpose. The remote cache is NOT configured here:
+# on CI, aspect-build/setup-aspect writes it to ~/.aspect/bazelrc (imported
+# from ~/.bazelrc), so the checkout stays free of machine-specific settings.
+#
+# The one rule that makes `aspect cache diff` work: the baseline `bazel test`
+# and the cache probe must resolve the same flags, so they compute the same
+# action keys. Everything below applies to both.
+
+test --test_output=errors
+test --test_summary=terse
+
+# Local, uncommitted settings (e.g. `common --remote_cache=grpc://127.0.0.1:9092`
+# for running `aspect cache diff` against a bazel-remote on your laptop).
+try-import %workspace%/user.bazelrc

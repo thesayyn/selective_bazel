@@ -1,0 +1,71 @@
+name: sharded
+
+# Ask the remote cache which tests are affected, then run only those, spread
+# across up to 10 runners. The `select` job executes no tests: `aspect cache
+# diff` probes the cache with --experimental_remote_require_cached and reads
+# the hit/miss map from Bazel's gRPC log.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  MAX_SHARDS: 10
+
+jobs:
+  select:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      count: ${{ steps.shard.outputs.count }}
+      total: ${{ steps.shard.outputs.total }}
+      matrix: ${{ steps.shard.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: aspect-build/setup-aspect@ebca96eb49ef58c00d4226de8bd3a0813507dd87 # v2026.38.3
+        with:
+          aspect-api-token: ${{ secrets.ASPECT_API_TOKEN }}
+      - name: Which tests are affected?
+        # stdout is the JSON document; progress and per-target reasons go to stderr.
+        run: aspect cache diff --output=json //... > affected.json
+      - name: Shard
+        id: shard
+        run: python3 tools/shard.py affected.json "$MAX_SHARDS" >> "$GITHUB_OUTPUT"
+      - name: Summary
+        run: |
+          {
+            echo "### \`aspect cache diff\`"
+            echo
+            echo "Affected **${{ steps.shard.outputs.count }}** of ${{ steps.shard.outputs.total }} tests."
+            echo
+            echo '```'
+            python3 -c 'import json; d=json.load(open("affected.json")); [print(t["label"], " <- ", ", ".join(f"{c[\"target\"]} ({c[\"mnemonic\"]})" for c in t["caused_by"])) for t in d["affected"]]'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: affected
+          path: affected.json
+
+  test:
+    needs: select
+    if: needs.select.outputs.count != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.select.outputs.matrix) }}
+    name: test (${{ matrix.shard }})
+    steps:
+      - uses: actions/checkout@v6
+      - uses: aspect-build/setup-aspect@ebca96eb49ef58c00d4226de8bd3a0813507dd87 # v2026.38.3
+        with:
+          aspect-api-token: ${{ secrets.ASPECT_API_TOKEN }}
+      - name: Test this shard
+        run: bazel test ${{ matrix.targets }}

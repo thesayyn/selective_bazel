@@ -1,0 +1,8 @@
+# Shared by every service. Edit core.txt and all 50 tests are affected.
+genrule(
+    name = "core",
+    srcs = ["core.txt"],
+    outs = ["core.out"],
+    cmd = "cat $< > $@",
+    visibility = ["//visibility:public"],
+)
