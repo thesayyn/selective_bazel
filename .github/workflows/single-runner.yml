@@ -21,17 +21,18 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       # Installs bazelisk and the Aspect CLI launcher (the CLI version is pinned
-      # by .aspect/version.axl) and logs in. The endpoints are in .bazelrc.
+      # by .aspect/version.axl). The endpoints are in .bazelrc.
       - uses: aspect-build/setup-aspect@ebca96eb49ef58c00d4226de8bd3a0813507dd87 # v2026.38.3
         with:
           bazelrc-generate: false
-          # Runs `aspect auth login`; the JWT it stores is what the BES
-          # credential helper in .bazelrc hands to Bazel.
-          aspect-api-token: ${{ secrets.ASPECT_API_TOKEN }}
-      - name: Authenticate to the remote cache
+      - name: Authenticate to the remote cache and BES
         env:
           ASPECT_API_TOKEN: ${{ secrets.ASPECT_API_TOKEN }}
-        run: echo "build --remote_cache_header=X-Aspect=$ASPECT_API_TOKEN" > user.bazelrc
+        run: |
+          {
+            echo "build --remote_cache_header=X-Aspect=$ASPECT_API_TOKEN"
+            echo "build --bes_header=X-Aspect=$ASPECT_API_TOKEN"
+          } > user.bazelrc
       # Both pipelines run on every push, at the same time, against one cache.
       # Without this the shards' uploads would land while this job is still
       # working through its queue and it would take them as cache hits, which
