@@ -7,7 +7,7 @@ to any of them changes the test action's inputs, and therefore its cache key.
 
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
-def heavy_test(name, deps, seconds = 30, **kwargs):
+def heavy_test(name, deps, seconds = 120, **kwargs):
     sh_test(
         name = name,
         srcs = ["//tools:heavy_test.sh"],
@@ -17,7 +17,7 @@ def heavy_test(name, deps, seconds = 30, **kwargs):
         **kwargs
     )
 
-def heavy_tests(prefix, count, deps, seconds = 30):
+def heavy_tests(prefix, count, deps, seconds = 120):
     """`count` identical heavy tests named `<prefix>_00`, `<prefix>_01`, ..."""
     for i in range(count):
         heavy_test(

@@ -1,9 +1,11 @@
 name: sharded
 
 # Ask the remote cache which tests are affected, then run only those, spread
-# across up to 10 runners. The `select` job executes no tests: `aspect cache
-# diff` probes the cache with --experimental_remote_require_cached and reads
-# the hit/miss map from Bazel's gRPC log.
+# across up to 13 runners (4 tests per runner, one per core; 13 shards keeps a
+# full 50-test run under GitHub's 20-concurrent-job limit for personal
+# accounts). The `select` job executes no tests: `aspect cache diff` probes the
+# cache with --experimental_remote_require_cached and reads the hit/miss map
+# from Bazel's gRPC log.
 
 on:
   push:
@@ -16,7 +18,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  MAX_SHARDS: 10
+  MAX_SHARDS: 13
 
 jobs:
   select:

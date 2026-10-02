@@ -18,7 +18,7 @@ services/
   epsilon/    lib + 10 heavy tests
 ```
 
-Each test burns one CPU core for 30 seconds and reads its library files, so a change to any of them changes the test action's inputs (its cache key). 50 tests × 30 s = 25 CPU-minutes per full run.
+Each test burns one CPU core for 120 seconds and reads its library files, so a change to any of them changes the test action's inputs (its cache key). 50 tests × 120 s = 100 CPU-minutes per full run, which is about 25 minutes of wall clock on one 4-core runner.
 
 ## The two pipelines
 
@@ -36,13 +36,15 @@ Both run on every push and pull request, so you can compare them side by side in
 ```yaml
 select:
   - run: aspect cache diff --output=json > affected.json     # which tests are NOT in the cache?
-  - run: python3 tools/shard.py affected.json 10 >> "$GITHUB_OUTPUT"
+  - run: python3 tools/shard.py affected.json 13 >> "$GITHUB_OUTPUT"   # ≤ 4 tests per shard, one per core
 test:
   strategy: { matrix: "${{ fromJSON(needs.select.outputs.matrix) }}" }
   - run: bazel test ${{ matrix.targets }}
 ```
 
 `aspect cache diff` runs one `bazel test` with `--experimental_remote_require_cached` and `--remote_grpc_log`: every action asks the remote cache whether it is already built, a miss is denied instead of run, and the gRPC log says which tests had a miss somewhere in their closure. Nothing executes. The result is the affected set as data, which is what you need before you can shard.
+
+`tools/shard.py` puts at most 4 tests in a shard (one per core on `ubuntu-latest`), so every shard finishes in a single two-minute round, and asks for no more shards than that needs: 50 affected tests → 13 shards, 10 → 3, 1 → 1, 0 → the test job is skipped.
 
 ## The remote cache
 
@@ -69,7 +71,6 @@ Measured on GitHub-hosted `ubuntu-latest` runners (4 cores). Durations are the w
 
 | change | tests affected | single runner | sharded (`cache diff` + N runners) |
 |---|---|---|---|
-| no cache configured at all | 50 | [7m 31s](../../actions/runs/37048867957) | — (`cache diff` needs a cache) |
 | _first run, empty cache_ | 50 | _pending_ | _pending_ |
 | no change | 0 | _pending_ | _pending_ |
 | one service's `lib.txt` | 10 | _pending_ | _pending_ |
@@ -88,7 +89,7 @@ echo 'build --remote_cache_header=X-Aspect=<your token>' > user.bazelrc   # giti
 bazel test //...                 # seed the baseline (or let CI do it)
 echo 'core v2' > core/core.txt
 aspect cache diff                # → 50 labels on stdout, reasons on stderr, nothing executed
-aspect cache diff --output=json | python3 tools/shard.py /dev/stdin 10
+aspect cache diff --output=json | python3 tools/shard.py /dev/stdin 13
 ```
 
 Any other REv2 cache works too, e.g. [bazel-remote](https://github.com/buchgr/bazel-remote): put `build --remote_cache=grpc://127.0.0.1:9092` in `user.bazelrc` instead (it overrides the Aspect Cloud line).

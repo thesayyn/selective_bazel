@@ -16,6 +16,8 @@ import json
 import os
 import sys
 
+TESTS_PER_SHARD = 4  # ubuntu-latest has 4 cores; each heavy test burns one
+
 
 def summary(doc: dict, labels: list, n: int) -> str:
     lines = [
@@ -37,7 +39,9 @@ def main() -> None:
     with open(path) as f:
         doc = json.load(f)
     labels = sorted(t["label"] for t in doc["affected"])
-    n = min(max_shards, len(labels))
+    # One test per core: a shard of <= TESTS_PER_SHARD tests finishes in a
+    # single round on a 4-core runner. More shards than that buys nothing.
+    n = min(max_shards, -(-len(labels) // TESTS_PER_SHARD))
     shards = [labels[i::n] for i in range(n)] if n else []
     matrix = {
         "include": [
