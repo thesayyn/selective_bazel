@@ -44,7 +44,14 @@ test:
 
 `aspect cache diff` runs one `bazel test` with `--experimental_remote_require_cached` and `--remote_grpc_log`: every action asks the remote cache whether it is already built, a miss is denied instead of run, and the gRPC log says which tests had a miss somewhere in their closure. Nothing executes. The result is the affected set as data, which is what you need before you can shard.
 
-`tools/shard.py` puts at most 4 tests in a shard (one per core on `ubuntu-latest`), so every shard finishes in a single two-minute round, and asks for no more shards than that needs: 50 affected tests → 13 shards, 10 → 3, 1 → 1, 0 → the test job is skipped.
+[`tools/shard.py`](tools/shard.py) then plans the shards, and it keeps related tests together rather than dealing them out round-robin. Tests in one package share their dependencies (here, the service's library), so a runner that gets a whole package builds or fetches those once instead of every runner doing it. The rules:
+
+1. group the affected tests by package;
+2. cut each package into chunks of at most 4 tests, one per core on `ubuntu-latest`, so a chunk finishes in a single two-minute round;
+3. a full chunk is a shard of its own; the small leftovers of different packages are packed together so no runner is nearly idle;
+4. never ask for more than 13 shards (a personal GitHub account runs 20 jobs at once); past that, chunks are spread evenly over 13 runners.
+
+So 50 affected tests become 13 shards named like `gamma:00-03` and `alpha:08-09 + beta:08-09`; 10 affected tests in one service become 3 shards; 1 becomes 1; 0 skips the test job entirely. The shard names are the job names in the Actions UI, so a red job tells you which service broke without opening it.
 
 ## The remote cache
 
