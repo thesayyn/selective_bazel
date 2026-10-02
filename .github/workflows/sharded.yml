@@ -42,18 +42,9 @@ jobs:
         run: aspect cache diff --output=json //... > affected.json
       - name: Shard
         id: shard
+        # Also writes the job summary (affected tests and their causes) when
+        # GITHUB_STEP_SUMMARY is set.
         run: python3 tools/shard.py affected.json "$MAX_SHARDS" >> "$GITHUB_OUTPUT"
-      - name: Summary
-        run: |
-          {
-            echo "### \`aspect cache diff\`"
-            echo
-            echo "Affected **${{ steps.shard.outputs.count }}** of ${{ steps.shard.outputs.total }} tests."
-            echo
-            echo '```'
-            python3 -c 'import json; d=json.load(open("affected.json")); [print(t["label"], " <- ", ", ".join(f"{c[\"target\"]} ({c[\"mnemonic\"]})" for c in t["caused_by"])) for t in d["affected"]]'
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v7
         with:
           name: affected

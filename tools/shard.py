@@ -4,14 +4,32 @@
     aspect cache diff --output=json > affected.json
     python3 tools/shard.py affected.json 10 >> "$GITHUB_OUTPUT"
 
-Writes two outputs: `count` (number of affected tests) and `matrix` (a JSON
-object with one `include` entry per shard, each carrying a space-separated
-`targets` string). Shards are filled round-robin, so they stay the same size.
+Writes three outputs: `count` (number of affected tests), `total`, and `matrix`
+(a JSON object with one `include` entry per shard, each carrying a
+space-separated `targets` string). Shards are filled round-robin, so they stay
+the same size. When GITHUB_STEP_SUMMARY is set, also appends a Markdown summary
+listing each affected test and the cache miss that caused it.
 Standard library only; GitHub's ubuntu runners have python3.
 """
 
 import json
+import os
 import sys
+
+
+def summary(doc: dict, labels: list, n: int) -> str:
+    lines = [
+        "### `aspect cache diff`",
+        "",
+        f"Affected **{len(labels)}** of {doc['total_tests']} tests → {n} shard(s).",
+        "",
+    ]
+    if labels:
+        lines += ["| affected test | cache miss in |", "|---|---|"]
+        for t in doc["affected"]:
+            causes = ", ".join(f"`{c['target']}` ({c['mnemonic']})" for c in t["caused_by"])
+            lines.append(f"| `{t['label']}` | {causes} |")
+    return "\n".join(lines) + "\n"
 
 
 def main() -> None:
@@ -33,6 +51,10 @@ def main() -> None:
         f"affected {len(labels)} of {doc['total_tests']} tests -> {n} shard(s)",
         file=sys.stderr,
     )
+    step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if step_summary:
+        with open(step_summary, "a") as f:
+            f.write(summary(doc, labels, n))
 
 
 if __name__ == "__main__":
