@@ -48,7 +48,9 @@ jobs:
           } > user.bazelrc
       - name: Which tests are affected?
         # stdout is the JSON document; progress and per-target reasons go to stderr.
-        run: aspect cache diff --output=json //... > affected.json
+        # The probe executes nothing, so it has no build events worth streaming;
+        # --bes_backend= switches BES off for this one invocation.
+        run: aspect cache diff --output=json --bes_backend= //... > affected.json
       - name: Shard
         id: shard
         # Also writes the job summary (affected tests and their causes) when
