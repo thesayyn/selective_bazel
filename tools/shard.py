@@ -10,97 +10,144 @@ space-separated `targets` string and a human-readable `shard` name). When
 GITHUB_STEP_SUMMARY is set, also appends a Markdown summary listing each
 affected test, the cache miss that caused it, and the shard plan.
 
-Sharding keeps related tests together. Tests in one package share their
-dependencies (here, the service's library), so a runner that gets a whole
-package builds or fetches those once instead of every runner doing it:
+Shards are planned by cost, not by count, and they keep related tests together:
 
-  1. group the affected tests by package;
-  2. cut each package into chunks of at most TESTS_PER_SHARD tests, one per
-     core, so a chunk finishes in a single round on the runner;
-  3. a full chunk is a shard of its own; the small leftovers of different
-     packages are packed together, largest first, so no runner is nearly idle;
-  4. if that is still more shards than `max_shards`, the chunks are spread
-     over exactly `max_shards` runners, largest first onto the least-loaded
-     runner, so shards stay balanced (and take more than one round).
+  1. ask Bazel for each affected test's `size` and turn it into an expected
+     duration (COST). A real repo would use historical durations here.
+  2. estimate a shard's wall time on a CORES-core runner as
+     max(longest test, total / CORES).
+  3. group the affected tests by package (tests in one package share their
+     dependencies, so one runner fetches them once) and cut each package into
+     chunks whose estimated wall time stays within SHARD_TARGET_SECONDS.
+  4. pack the chunks into shards, largest first, as long as a shard stays
+     within the target; a chunk is never split across shards.
+  5. if that is still more shards than `max_shards`, spread the chunks over
+     exactly `max_shards` runners, largest first onto the least-loaded one.
 
 Standard library only; GitHub's ubuntu runners have python3.
 """
 
 import json
 import os
+import re
+import shutil
+import subprocess
 import sys
 from collections import defaultdict
 
-TESTS_PER_SHARD = 4  # ubuntu-latest has 4 cores; each heavy test burns one
+CORES = 4  # ubuntu-latest; each heavy test burns one core
+COST = {"small": 15, "medium": 60, "large": 240, "enormous": 900}  # seconds, see heavy_test.bzl
+TARGET = int(os.environ.get("SHARD_TARGET_SECONDS", "240"))
+
+
+def costs(labels: list) -> dict:
+    """Expected duration per label from its Bazel `size`; medium when unknown."""
+    cost = {label: COST["medium"] for label in labels}
+    if not labels or shutil.which("bazel") is None:
+        return cost
+    universe = "set(" + " ".join(labels) + ")"
+    for size, seconds in COST.items():
+        out = subprocess.run(
+            ["bazel", "query", "--noshow_progress", "--output=label", f'attr(size, "^{size}$", {universe})'],
+            capture_output=True, text=True,
+        )
+        if out.returncode == 0:
+            for label in out.stdout.split():
+                cost[label] = seconds
+    return cost
+
+
+def makespan(tests: list, cost: dict) -> float:
+    d = [cost[t] for t in tests]
+    return max(max(d), sum(d) / CORES) if d else 0.0
+
+
+def flat(shard: list) -> list:
+    return [t for chunk in shard for t in chunk]
 
 
 def package(label: str) -> str:
     return label.split(":", 1)[0]
 
 
-def short(label: str) -> str:
-    """`//services/gamma:test_07` -> `gamma:07`, for job names."""
-    pkg, name = label.rsplit(":", 1)
-    return f"{pkg.rsplit('/', 1)[-1]}:{name.rsplit('_', 1)[-1]}"
-
-
 def describe(chunk: list) -> str:
-    """`gamma:00-03` for a run of one package's tests, `gamma:09` for a single."""
-    pkg = short(chunk[0]).split(":")[0]
-    first, last = short(chunk[0]).split(":")[1], short(chunk[-1]).split(":")[1]
-    return f"{pkg}:{first}" if first == last else f"{pkg}:{first}-{last}"
+    """`gamma:00-03,08` — package short name, then the tests' numeric suffixes as ranges."""
+    pkg = package(chunk[0]).rsplit("/", 1)[-1]
+    names = sorted(t.rsplit(":", 1)[1] for t in chunk)
+    nums = [re.search(r"(\d+)$", n) for n in names]
+    if not all(nums):
+        return f"{pkg}:{','.join(names)}"
+    nums = [m.group(1) for m in nums]
+    ranges, start, prev = [], nums[0], nums[0]
+    for n in nums[1:]:
+        if int(n) == int(prev) + 1:
+            prev = n
+            continue
+        ranges.append(start if start == prev else f"{start}-{prev}")
+        start = prev = n
+    ranges.append(start if start == prev else f"{start}-{prev}")
+    return f"{pkg}:{','.join(ranges)}"
 
 
-def plan(labels: list, max_shards: int) -> list:
+def fmt(seconds: float) -> str:
+    return f"~{int(seconds) // 60}m{int(seconds) % 60:02d}s"
+
+
+def plan(labels: list, cost: dict, target: int, max_shards: int) -> list:
     """Return shards as lists of chunks; each chunk is one package's tests."""
     by_pkg = defaultdict(list)
-    for label in sorted(labels):
+    for label in labels:
         by_pkg[package(label)].append(label)
 
-    full, partial = [], []
+    chunks = []
     for pkg in sorted(by_pkg):
-        tests = by_pkg[pkg]
-        for i in range(0, len(tests), TESTS_PER_SHARD):
-            chunk = tests[i : i + TESTS_PER_SHARD]
-            (full if len(chunk) == TESTS_PER_SHARD else partial).append(chunk)
+        chunk = []
+        for t in sorted(by_pkg[pkg], key=lambda t: (-cost[t], t)):  # longest first
+            if chunk and makespan(chunk + [t], cost) > target:
+                chunks.append(chunk)
+                chunk = []
+            chunk.append(t)
+        if chunk:
+            chunks.append(chunk)
 
-    shards = [[c] for c in full]
-    for chunk in sorted(partial, key=len, reverse=True):  # first-fit decreasing
+    shards = []
+    for chunk in sorted(chunks, key=lambda c: -makespan(c, cost)):  # first-fit decreasing
         for shard in shards:
-            if shard in [[c] for c in full]:
-                continue  # full chunks have no room
-            if sum(map(len, shard)) + len(chunk) <= TESTS_PER_SHARD:
+            if makespan(flat(shard + [chunk]), cost) <= target:
                 shard.append(chunk)
                 break
         else:
             shards.append([chunk])
 
     if len(shards) > max_shards > 0:
-        # Too many: spread the chunks over exactly max_shards runners, largest
-        # chunk first onto the runner with the least work so far (LPT). Each
-        # chunk still stays whole, so related tests still run together.
         bins = [[] for _ in range(max_shards)]
-        for chunk in sorted(full + partial, key=len, reverse=True):
-            min(bins, key=lambda b: sum(map(len, b))).append(chunk)
+        for chunk in sorted(chunks, key=lambda c: -makespan(c, cost)):
+            min(bins, key=lambda b: makespan(flat(b), cost)).append(chunk)
         shards = [b for b in bins if b]
-    return shards
+    return sorted(shards, key=lambda s: -makespan(flat(s), cost))
 
 
-def summary(doc: dict, labels: list, shards: list) -> str:
+def summary(doc: dict, labels: list, shards: list, cost: dict) -> str:
     lines = [
         "### `aspect cache diff`",
         "",
-        f"Affected **{len(labels)}** of {doc['total_tests']} tests → {len(shards)} shard(s).",
+        f"Affected **{len(labels)}** of {doc['total_tests']} tests → {len(shards)} shard(s), "
+        f"target {fmt(TARGET)} each on {CORES} cores.",
         "",
     ]
     if labels:
-        lines += ["| affected test | cache miss in |", "|---|---|"]
+        lines += ["| affected test | size | cache miss in |", "|---|---|---|"]
+        size_of = {v: k for k, v in COST.items()}
         for t in doc["affected"]:
             causes = ", ".join(f"`{c['target']}` ({c['mnemonic']})" for c in t["caused_by"])
-            lines.append(f"| `{t['label']}` | {causes} |")
-        lines += ["", "| shard | tests |", "|---|---|"]
+            lines.append(f"| `{t['label']}` | {size_of.get(cost[t['label']], '?')} | {causes} |")
+        lines += ["", "| shard | tests | core-seconds | est. wall |", "|---|---|---|---|"]
         for shard in shards:
-            lines.append(f"| {' + '.join(describe(c) for c in shard)} | {sum(map(len, shard))} |")
+            tests = flat(shard)
+            lines.append(
+                f"| {' + '.join(describe(c) for c in shard)} | {len(tests)} | "
+                f"{sum(cost[t] for t in tests)} | {fmt(makespan(tests, cost))} |"
+            )
     return "\n".join(lines) + "\n"
 
 
@@ -109,12 +156,13 @@ def main() -> None:
     with open(path) as f:
         doc = json.load(f)
     labels = sorted(t["label"] for t in doc["affected"])
-    shards = plan(labels, max_shards)
+    cost = costs(labels)
+    shards = plan(labels, cost, TARGET, max_shards)
     matrix = {
         "include": [
             {
-                "shard": " + ".join(describe(c) for c in shard),
-                "targets": " ".join(label for chunk in shard for label in chunk),
+                "shard": " + ".join(describe(c) for c in shard) + " " + fmt(makespan(flat(shard), cost)),
+                "targets": " ".join(flat(shard)),
             }
             for shard in shards
         ]
@@ -130,7 +178,7 @@ def main() -> None:
     step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if step_summary:
         with open(step_summary, "a") as f:
-            f.write(summary(doc, labels, shards))
+            f.write(summary(doc, labels, shards, cost))
 
 
 if __name__ == "__main__":

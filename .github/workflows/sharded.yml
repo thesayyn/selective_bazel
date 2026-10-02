@@ -1,11 +1,12 @@
 name: sharded
 
-# Ask the remote cache which tests are affected, then run only those, spread
-# across up to 13 runners (4 tests per runner, one per core; 13 shards keeps a
-# full 50-test run under GitHub's 20-concurrent-job limit for personal
-# accounts). The `select` job executes no tests: `aspect cache diff` probes the
-# cache with --experimental_remote_require_cached and reads the hit/miss map
-# from Bazel's gRPC log.
+# Ask the remote cache which tests are affected, then run only those, planned
+# into shards of about SHARD_TARGET_SECONDS of test time each (every shard pays
+# for checkout, install and analysis, so shards are sized to amortize that),
+# never more than MAX_SHARDS (13 keeps a full run under GitHub's 20-concurrent-
+# job limit for personal accounts). The `select` job executes no tests:
+# `aspect cache diff` probes the cache with --experimental_remote_require_cached
+# and reads the hit/miss map from Bazel's gRPC log.
 
 on:
   push:
@@ -19,6 +20,8 @@ concurrency:
 
 env:
   MAX_SHARDS: 13
+  # Test time each shard is planned to hold; see tools/shard.py.
+  SHARD_TARGET_SECONDS: 240
 
 jobs:
   select:
@@ -35,10 +38,14 @@ jobs:
       - uses: aspect-build/setup-aspect@ebca96eb49ef58c00d4226de8bd3a0813507dd87 # v2026.38.3
         with:
           bazelrc-generate: false
-      - name: Authenticate to the remote cache
+      - name: Authenticate to the remote cache and BES
         env:
           ASPECT_API_TOKEN: ${{ secrets.ASPECT_API_TOKEN }}
-        run: echo "build --remote_cache_header=X-Aspect=$ASPECT_API_TOKEN" > user.bazelrc
+        run: |
+          {
+            echo "build --remote_cache_header=X-Aspect=$ASPECT_API_TOKEN"
+            echo "build --bes_header=X-Aspect=$ASPECT_API_TOKEN"
+          } > user.bazelrc
       - name: Which tests are affected?
         # stdout is the JSON document; progress and per-target reasons go to stderr.
         run: aspect cache diff --output=json //... > affected.json
@@ -66,9 +73,13 @@ jobs:
       - uses: aspect-build/setup-aspect@ebca96eb49ef58c00d4226de8bd3a0813507dd87 # v2026.38.3
         with:
           bazelrc-generate: false
-      - name: Authenticate to the remote cache
+      - name: Authenticate to the remote cache and BES
         env:
           ASPECT_API_TOKEN: ${{ secrets.ASPECT_API_TOKEN }}
-        run: echo "build --remote_cache_header=X-Aspect=$ASPECT_API_TOKEN" > user.bazelrc
+        run: |
+          {
+            echo "build --remote_cache_header=X-Aspect=$ASPECT_API_TOKEN"
+            echo "build --bes_header=X-Aspect=$ASPECT_API_TOKEN"
+          } > user.bazelrc
       - name: Test this shard
         run: bazel test ${{ matrix.targets }}

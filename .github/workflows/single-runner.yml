@@ -25,9 +25,20 @@ jobs:
       - uses: aspect-build/setup-aspect@ebca96eb49ef58c00d4226de8bd3a0813507dd87 # v2026.38.3
         with:
           bazelrc-generate: false
-      - name: Authenticate to the remote cache
+      - name: Authenticate to the remote cache and BES
         env:
           ASPECT_API_TOKEN: ${{ secrets.ASPECT_API_TOKEN }}
-        run: echo "build --remote_cache_header=X-Aspect=$ASPECT_API_TOKEN" > user.bazelrc
+        run: |
+          {
+            echo "build --remote_cache_header=X-Aspect=$ASPECT_API_TOKEN"
+            echo "build --bes_header=X-Aspect=$ASPECT_API_TOKEN"
+          } > user.bazelrc
+      # Both pipelines run on every push, at the same time, against one cache.
+      # Without this the shards' uploads would land while this job is still
+      # working through its queue and it would take them as cache hits, which
+      # makes it look faster than a single runner is. The env var enters every
+      # action key, so this pipeline keeps its own cache namespace.
+      - name: Keep a separate cache namespace from the sharded pipeline
+        run: echo "build --action_env=PIPELINE=single-runner" >> user.bazelrc
       - name: Test everything
         run: bazel test //...

@@ -4,14 +4,18 @@
 # and the cache probe must resolve the same flags, so they compute the same
 # action keys. Everything below applies to both.
 
-# Remote cache: Aspect Cloud (free tier) — https://aspect.build
+# Remote cache and build event stream: Aspect Cloud (free tier) — https://aspect.build
 # `test` inherits `build` flags, so this covers the tests and the cache probe.
+# Every invocation prints its link into the Aspect Cloud UI.
 build --remote_cache=grpcs://cache.aspect.build
+build --bes_backend=grpcs://bes.aspect.build
+build --bes_results_url=https://app.aspect.build/i/
 
-# Authentication is one header, and it is a secret, so it is not in this file.
-# Put it in user.bazelrc (gitignored, imported below); CI writes it from the
-# ASPECT_API_TOKEN secret:
+# Authentication is one header per endpoint, and it is a secret, so it is not
+# in this file. Put it in user.bazelrc (gitignored, imported below); CI writes
+# it from the ASPECT_API_TOKEN secret:
 #   build --remote_cache_header=X-Aspect=<your token>
+#   build --bes_header=X-Aspect=<your token>
 
 test --test_output=errors
 test --test_summary=terse
