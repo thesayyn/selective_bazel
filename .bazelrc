@@ -11,11 +11,14 @@ build --remote_cache=grpcs://cache.aspect.build
 build --bes_backend=grpcs://bes.aspect.build
 build --bes_results_url=https://app.aspect.build/i/
 
-# Authentication is one header per endpoint, and it is a secret, so it is not
-# in this file. Put it in user.bazelrc (gitignored, imported below); CI writes
-# it from the ASPECT_API_TOKEN secret:
+# The cache takes the API token as a header. It is a secret, so it is not in
+# this file: put it in user.bazelrc (gitignored, imported below); CI writes it
+# from the ASPECT_API_TOKEN secret:
 #   build --remote_cache_header=X-Aspect=<your token>
-#   build --bes_header=X-Aspect=<your token>
+#
+# BES wants the short-lived JWT that `aspect auth login` creates, so Bazel asks
+# the Aspect CLI for it as a credential helper (CI logs in via setup-aspect).
+build --credential_helper=bes.aspect.build=aspect
 
 test --test_output=errors
 test --test_summary=terse
