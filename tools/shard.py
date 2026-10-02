@@ -38,6 +38,9 @@ from collections import defaultdict
 CORES = 4  # ubuntu-latest; each heavy test burns one core
 COST = {"small": 15, "medium": 60, "large": 240, "enormous": 900}  # seconds, see heavy_test.bzl
 TARGET = int(os.environ.get("SHARD_TARGET_SECONDS", "240"))
+# Checkout, tool install and Bazel analysis before the first test runs; added to
+# the wall-time estimates shown in shard names and the summary, not to the plan.
+OVERHEAD = int(os.environ.get("SHARD_OVERHEAD_SECONDS", "60"))
 
 
 def costs(labels: list) -> dict:
@@ -132,7 +135,7 @@ def summary(doc: dict, labels: list, shards: list, cost: dict) -> str:
         "### `aspect cache diff`",
         "",
         f"Affected **{len(labels)}** of {doc['total_tests']} tests → {len(shards)} shard(s), "
-        f"target {fmt(TARGET)} each on {CORES} cores.",
+        f"planned at up to {fmt(TARGET)} of test time each on {CORES} cores.",
         "",
     ]
     if labels:
@@ -141,12 +144,12 @@ def summary(doc: dict, labels: list, shards: list, cost: dict) -> str:
         for t in doc["affected"]:
             causes = ", ".join(f"`{c['target']}` ({c['mnemonic']})" for c in t["caused_by"])
             lines.append(f"| `{t['label']}` | {size_of.get(cost[t['label']], '?')} | {causes} |")
-        lines += ["", "| shard | tests | core-seconds | est. wall |", "|---|---|---|---|"]
+        lines += ["", "| shard | tests | core-seconds | est. wall (incl. setup) |", "|---|---|---|---|"]
         for shard in shards:
             tests = flat(shard)
             lines.append(
                 f"| {' + '.join(describe(c) for c in shard)} | {len(tests)} | "
-                f"{sum(cost[t] for t in tests)} | {fmt(makespan(tests, cost))} |"
+                f"{sum(cost[t] for t in tests)} | {fmt(OVERHEAD + makespan(tests, cost))} |"
             )
     return "\n".join(lines) + "\n"
 
@@ -161,7 +164,7 @@ def main() -> None:
     matrix = {
         "include": [
             {
-                "shard": " + ".join(describe(c) for c in shard) + " " + fmt(makespan(flat(shard), cost)),
+                "shard": " + ".join(describe(c) for c in shard) + " " + fmt(OVERHEAD + makespan(flat(shard), cost)),
                 "targets": " ".join(flat(shard)),
             }
             for shard in shards

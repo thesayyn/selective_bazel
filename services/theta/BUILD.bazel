@@ -1,0 +1,18 @@
+load("//tools:heavy_test.bzl", "heavy_tests")
+
+# This service's own library. Edit lib.txt and these 10 tests are affected
+# (4 small, 4 medium, 2 large; see //tools:heavy_test.bzl).
+genrule(
+    name = "lib",
+    srcs = ["lib.txt"],
+    outs = ["lib.out"],
+    cmd = "cat $< > $@",
+)
+
+heavy_tests(
+    prefix = "test",
+    deps = [
+        ":lib",
+        "//core",
+    ],
+)

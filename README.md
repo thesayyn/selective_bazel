@@ -2,23 +2,22 @@
 
 Companion repo for the BazelCon 2026 talk **"Stop delivering your whole fleet for a single change."**
 
-It answers one question with real CI runs: for a repo with 50 heavy tests, what does it cost to run them on one runner, versus asking the remote cache which ones are affected and sharding only those across runners?
+It answers one question with real CI runs: for a repo with 100 heavy tests, what does it cost to run them on one runner, versus asking the remote cache which ones are affected and sharding only those across runners?
 
 The only Aspect CLI command used here is [`aspect cache diff`](https://aspect.build/docs/cli). Everything else is stock Bazel and GitHub Actions.
 
 ## The repo
 
 ```
-core/         one shared library                       edit core.txt   → all 50 tests affected
+core/         one shared library                       edit core.txt   → all 100 tests affected
 services/
   alpha/      lib + 10 heavy tests (4 small, 4 medium, 2 large)   edit lib.txt → 10 tests affected
   beta/       lib + 10 heavy tests
-  gamma/      lib + 10 heavy tests
-  delta/      lib + 10 heavy tests
-  epsilon/    lib + 10 heavy tests
+  …           ten services in all: alpha … kappa
+  kappa/      lib + 10 heavy tests
 ```
 
-Each test burns one CPU core for a fixed time set by its Bazel `size` — small 15 s, medium 60 s, large 240 s — and reads its library files, so a change to any of them changes the test action's inputs (its cache key). A full run is 65 CPU-minutes, about 17 minutes of wall clock on one 4-core runner.
+Each test burns one CPU core for a fixed time set by its Bazel `size` — small 15 s, medium 60 s, large 240 s — and reads its library files, so a change to any of them changes the test action's inputs (its cache key). A full run is 130 CPU-minutes, about 35 minutes of wall clock on one 4-core runner.
 
 ## The two pipelines
 
@@ -51,7 +50,7 @@ test:
 3. keep related tests together: group by package (tests in one package share their dependencies, so one runner fetches them once) and cut each package into chunks that fit a 4-minute target;
 4. pack chunks into shards, largest first, while a shard stays within the target; never more than 13 shards (a personal GitHub account runs 20 jobs at once).
 
-So all 50 tests become 5 shards, one whole service each, planned at ~4 minutes; the 10 tests of one service become 1 shard; a single test becomes 1 shard; 0 skips the test job. Shard names like `gamma:00-09 ~4m00s` are the job names in the Actions UI, and the job summary shows the plan next to the actual numbers.
+So all 100 tests become 10 shards, one whole service each, planned at 4 minutes of test time; the 10 tests of one service become 1 shard; a single test becomes 1 shard; 0 skips the test job. Shard names like `gamma:00-09 ~5m00s` are the job names in the Actions UI; the estimate adds a minute for checkout, install and analysis, and the job summary shows the plan next to the actual numbers. Expect the real jobs to run somewhat over it: Bazel's local scheduler does not start the longest tests first, so the two 240 s tests tend to finish after the small and medium ones rather than overlapping them.
 
 ## The remote cache
 
@@ -82,10 +81,9 @@ Measured on GitHub-hosted `ubuntu-latest` runners (4 cores). Durations are the w
 
 | change | tests affected | single runner | sharded (`cache diff` + N runners) |
 |---|---|---|---|
-| _first run, empty cache_ | 50 | _pending_ | _pending_ |
 | no change | 0 | _pending_ | _pending_ |
 | one service's `lib.txt` | 10 | _pending_ | _pending_ |
-| `core/core.txt` | 50 | _pending_ | _pending_ |
+| `core/core.txt` | 100 | _pending_ | _pending_ |
 
 (Filled in from real runs; each cell links to its workflow run.)
 
