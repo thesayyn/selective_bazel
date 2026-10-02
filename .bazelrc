@@ -1,14 +1,21 @@
-# Keep this file small on purpose. The remote cache is NOT configured here:
-# on CI, aspect-build/setup-aspect writes it to ~/.aspect/bazelrc (imported
-# from ~/.bazelrc), so the checkout stays free of machine-specific settings.
+# Keep this file small on purpose.
 #
 # The one rule that makes `aspect cache diff` work: the baseline `bazel test`
 # and the cache probe must resolve the same flags, so they compute the same
 # action keys. Everything below applies to both.
 
+# Remote cache: Aspect Cloud (free tier) — https://aspect.build
+# `test` inherits `build` flags, so this covers the tests and the cache probe.
+build --remote_cache=grpcs://cache.aspect.build
+
+# Authentication is one header, and it is a secret, so it is not in this file.
+# Put it in user.bazelrc (gitignored, imported below); CI writes it from the
+# ASPECT_API_TOKEN secret:
+#   build --remote_cache_header=X-Aspect=<your token>
+
 test --test_output=errors
 test --test_summary=terse
 
-# Local, uncommitted settings (e.g. `common --remote_cache=grpc://127.0.0.1:9092`
-# for running `aspect cache diff` against a bazel-remote on your laptop).
+# Local, uncommitted settings: the cache header above, or a different cache
+# entirely (e.g. `build --remote_cache=grpc://127.0.0.1:9092` for bazel-remote).
 try-import %workspace%/user.bazelrc

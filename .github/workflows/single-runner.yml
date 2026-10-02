@@ -20,11 +20,14 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
-      # Installs bazelisk and the Aspect CLI launcher, and writes the remote
-      # cache + BES configuration to ~/.aspect/bazelrc (imported by ~/.bazelrc),
-      # so a plain `bazel` call below reads and writes the shared cache.
+      # Installs bazelisk and the Aspect CLI launcher (the CLI version is pinned
+      # by .aspect/version.axl). The cache itself is configured in .bazelrc.
       - uses: aspect-build/setup-aspect@ebca96eb49ef58c00d4226de8bd3a0813507dd87 # v2026.38.3
         with:
-          aspect-api-token: ${{ secrets.ASPECT_API_TOKEN }}
+          bazelrc-generate: false
+      - name: Authenticate to the remote cache
+        env:
+          ASPECT_API_TOKEN: ${{ secrets.ASPECT_API_TOKEN }}
+        run: echo "build --remote_cache_header=X-Aspect=$ASPECT_API_TOKEN" > user.bazelrc
       - name: Test everything
         run: bazel test //...

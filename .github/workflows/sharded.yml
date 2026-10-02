@@ -28,9 +28,15 @@ jobs:
       matrix: ${{ steps.shard.outputs.matrix }}
     steps:
       - uses: actions/checkout@v6
+      # Installs bazelisk and the Aspect CLI launcher (the CLI version is pinned
+      # by .aspect/version.axl). The cache itself is configured in .bazelrc.
       - uses: aspect-build/setup-aspect@ebca96eb49ef58c00d4226de8bd3a0813507dd87 # v2026.38.3
         with:
-          aspect-api-token: ${{ secrets.ASPECT_API_TOKEN }}
+          bazelrc-generate: false
+      - name: Authenticate to the remote cache
+        env:
+          ASPECT_API_TOKEN: ${{ secrets.ASPECT_API_TOKEN }}
+        run: echo "build --remote_cache_header=X-Aspect=$ASPECT_API_TOKEN" > user.bazelrc
       - name: Which tests are affected?
         # stdout is the JSON document; progress and per-target reasons go to stderr.
         run: aspect cache diff --output=json //... > affected.json
@@ -66,6 +72,10 @@ jobs:
       - uses: actions/checkout@v6
       - uses: aspect-build/setup-aspect@ebca96eb49ef58c00d4226de8bd3a0813507dd87 # v2026.38.3
         with:
-          aspect-api-token: ${{ secrets.ASPECT_API_TOKEN }}
+          bazelrc-generate: false
+      - name: Authenticate to the remote cache
+        env:
+          ASPECT_API_TOKEN: ${{ secrets.ASPECT_API_TOKEN }}
+        run: echo "build --remote_cache_header=X-Aspect=$ASPECT_API_TOKEN" > user.bazelrc
       - name: Test this shard
         run: bazel test ${{ matrix.targets }}
